@@ -1,0 +1,26 @@
+# Configuration for Face Verification App
+
+model:
+  path: "../pretrained_models/R100_Glint360K.onnx"
+  type: "onnx"
+
+inference:
+  threshold: 0.1998
+  image_size:
+    - 112
+    - 112
+  normalization:
+    mean:
+      - 0.5
+      - 0.5
+      - 0.5
+    std:
+      - 0.5
+      - 0.5
+      - 0.5
+
+ui:
+  example_image1: "../val_data/3_MariaCallas_35_f.jpg"
+  example_image2: "../val_data/4_MariaCallas_41_f.jpg"
+  title: "Face Verification App"
+  description: "Compare two face images to determine if they belong to the same person"
