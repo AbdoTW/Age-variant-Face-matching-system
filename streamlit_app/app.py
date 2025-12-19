@@ -36,8 +36,8 @@ CONFIG = {
         }
     },
     'ui': {
-        'title': 'Face Verification App',
-        'description': 'Compare two face images to determine if they belong to the same person',
+        'title': 'Age-Invariant Face Recognition',
+        'description': 'Compare faces across ages to verify identity',
         'example_image1': '../val_data/3_MariaCallas_35_f.jpg',
         'example_image2': '../val_data/4_MariaCallas_41_f.jpg'
     }
