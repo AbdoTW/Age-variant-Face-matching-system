@@ -6,7 +6,6 @@ Usage:
 """
 
 import streamlit as st
-import yaml
 import os
 from pathlib import Path
 import torch
@@ -22,6 +21,27 @@ import tempfile
 import gdown 
 
 
+# Configuration (hardcoded instead of YAML)
+CONFIG = {
+    'model': {
+        'path': '../pretrained_models/R100_Glint360K.onnx',
+        'type': 'onnx'
+    },
+    'inference': {
+        'threshold': 0.1998,
+        'image_size': [112, 112],
+        'normalization': {
+            'mean': [0.5, 0.5, 0.5],
+            'std': [0.5, 0.5, 0.5]
+        }
+    },
+    'ui': {
+        'title': 'Face Verification App',
+        'description': 'Compare two face images to determine if they belong to the same person',
+        'example_image1': '../val_data/3_MariaCallas_35_f.jpg',
+        'example_image2': '../val_data/4_MariaCallas_41_f.jpg'
+    }
+}
 
 
 MODEL_PATH = Path(__file__).parent / "../pretrained_models/R100_Glint360K.onnx"
@@ -40,8 +60,6 @@ else:
     st.success(f"ONNX model already exists at {MODEL_PATH}")
 
 
-
-
 # Page configuration
 st.set_page_config(
     page_title="Face Verification",
@@ -51,31 +69,10 @@ st.set_page_config(
 
 
 @st.cache_resource
-def load_config():
-    """Load configuration from YAML file"""
-    try:
-        config_path = Path(__file__).parent / "config.yaml"
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        return config
-    except Exception as e:
-        st.warning(f"Could not load config.yaml: {e}. Using defaults.")
-        return {
-            'model': {'path': '../pretrained_models/R100_Glint360K.onnx'},
-            'inference': {'threshold': 0.1998},
-            'ui': {
-                'title': 'Face Verification App',
-                'description': 'Upload two face images to determine if they belong to the same person'
-            }
-        }
-
-
-@st.cache_resource
 def load_model(model_path):
     """Load model (cached to avoid reloading)"""
     # Convert relative path to absolute
     abs_model_path = Path(__file__).parent / model_path
-    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
     device = 'cpu'
     model, device = load_onnx_model(str(abs_model_path), device)
     return model, device
@@ -118,9 +115,6 @@ def verify_faces(image_path1, image_path2, model, device, threshold):
 
 
 def main():
-    # Load configuration
-    config = load_config()
-    
     # Custom CSS to remove top padding and compress layout
     st.markdown(
         """
@@ -151,8 +145,8 @@ def main():
     st.markdown(
         f"""
         <div style="text-align: center; margin: 20px 0;">
-            <h1 style="font-size: 36px; margin: 10px 0; padding: 0; color: #ffffff;">{config['ui']['title']}</h1>
-            <p style="margin: 5px 0; font-size: 16px; color: #aaaaaa;">{config['ui']['description']}</p>
+            <h1 style="font-size: 36px; margin: 10px 0; padding: 0; color: #ffffff;">{CONFIG['ui']['title']}</h1>
+            <p style="margin: 5px 0; font-size: 16px; color: #aaaaaa;">{CONFIG['ui']['description']}</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -165,17 +159,14 @@ def main():
         # Model path (editable)
         model_path = st.text_input(
             "Model Path",
-            value=config['model']['path'],
+            value=CONFIG['model']['path'],
             help="Path to ONNX model file (relative to app.py)"
         )
         
         # Use fixed threshold from config
-        threshold = config['inference']['threshold']
+        threshold = CONFIG['inference']['threshold']
         
         st.markdown("---")
-        # st.markdown("**Device Info:**")
-        # device_info = "🟢 GPU (CUDA)" if torch.cuda.is_available() else "🔵 CPU"
-        # st.markdown(f"{device_info}")
     
     # Main content - Image upload
     col1, col2 = st.columns(2)
