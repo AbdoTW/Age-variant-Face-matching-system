@@ -23,4 +23,3 @@ tensorflow-cpu==2.20.0
 
 # NEW: Age-Gender prediction model
 transformers==4.44.2
-tokenizers==0.19.1  # Pin to version compatible with Python 3.12
