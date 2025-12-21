@@ -190,6 +190,45 @@ def draw_bbox_with_age(image, bbox, age):
     return img_copy
 
 
+def resize_image_to_fixed_size(image, target_width=500, target_height=500):
+    """
+    Resize image to fixed size while maintaining aspect ratio
+    
+    Args:
+        image: PIL Image
+        target_width: Target width in pixels
+        target_height: Target height in pixels
+    
+    Returns:
+        PIL Image resized to fit within target dimensions
+    """
+    # Calculate aspect ratio
+    img_width, img_height = image.size
+    aspect_ratio = img_width / img_height
+    target_aspect_ratio = target_width / target_height
+    
+    # Calculate new dimensions to fit within target size
+    if aspect_ratio > target_aspect_ratio:
+        # Width is the limiting factor
+        new_width = target_width
+        new_height = int(target_width / aspect_ratio)
+    else:
+        # Height is the limiting factor
+        new_height = target_height
+        new_width = int(target_height * aspect_ratio)
+    
+    # Resize image
+    resized_image = image.resize((new_width, new_height), Image.LANCZOS)
+    
+    # Create a new image with target size and paste resized image in center
+    final_image = Image.new('RGB', (target_width, target_height), (0, 0, 0))  # Dark gray background
+    paste_x = (target_width - new_width) // 2
+    paste_y = (target_height - new_height) // 2
+    final_image.paste(resized_image, (paste_x, paste_y))
+    
+    return final_image
+
+
 def verify_faces(face_crop1, face_crop2, model, device, threshold):
     """
     Main verification function using cropped face images
@@ -240,7 +279,7 @@ def verify_faces(face_crop1, face_crop2, model, device, threshold):
 
 
 def main():
-    # Custom CSS to remove top padding and compress layout
+    # Custom CSS for fixed image sizing and centered display
     st.markdown(
         """
         <style>
@@ -260,6 +299,27 @@ def main():
         .stFileUploader {
             margin-top: 0.5rem;
             margin-bottom: 0.5rem;
+        }
+        
+        /* Image container styling */
+        .image-container {
+            background-color: #333;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            margin: 10px;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        
+        /* Center image captions */
+        .image-caption {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #aaaaaa;
         }
         </style>
         """,
@@ -380,6 +440,10 @@ def main():
                 age_result2['age']
             )
             
+            # Resize images to fixed size
+            display_img1 = resize_image_to_fixed_size(annotated_img1, target_width=500, target_height=500)
+            display_img2 = resize_image_to_fixed_size(annotated_img2, target_width=500, target_height=500)
+            
             # Load verification model
             with st.spinner("Loading verification model..."):
                 try:
@@ -406,15 +470,19 @@ def main():
         st.success("✅ Verification Complete!")
         st.markdown("---")
         
-        # Display images side by side with bounding boxes
+        # Display images side by side with bounding boxes in fixed size containers
         img_col1, img_col2 = st.columns(2)
         
         with img_col1:
-            st.image(annotated_img1, caption="Image 1", width="stretch")
+            st.markdown('<div class="image-container">', unsafe_allow_html=True)
+            st.image(display_img1, caption="Image 1", width="stretch")
+            st.markdown('</div>', unsafe_allow_html=True)
             st.markdown(f"<h3 style='text-align: center;'>Age: {age_result1['age']} years</h3>", unsafe_allow_html=True)
 
         with img_col2:
-            st.image(annotated_img2, caption="Image 2", width="stretch")
+            st.markdown('<div class="image-container">', unsafe_allow_html=True)
+            st.image(display_img2, caption="Image 2", width="stretch")
+            st.markdown('</div>', unsafe_allow_html=True)
             st.markdown(f"<h3 style='text-align: center;'>Age: {age_result2['age']} years</h3>", unsafe_allow_html=True)
         
         st.markdown("---")
