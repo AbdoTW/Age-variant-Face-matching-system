@@ -1,5 +1,5 @@
 """
-app.py - Streamlit Face Verification Application
+app.py - Streamlit Face Verification Application with Face Detection and Age Prediction
 
 Usage:
     streamlit run app.py
@@ -18,7 +18,26 @@ from utils import (
     format_result
 )
 import tempfile
-import gdown 
+import gdown
+from PIL import Image, ImageDraw, ImageFont
+import numpy as np
+
+# Import MTCNN for face detection
+try:
+    from mtcnn import MTCNN
+    face_detector = MTCNN()
+except ImportError:
+    import subprocess
+    subprocess.check_call(['pip', 'install', 'mtcnn'])
+    from mtcnn import MTCNN
+    face_detector = MTCNN()
+
+# Import age-gender prediction model
+try:
+    from model import predict_age_gender
+except ImportError:
+    st.error("⚠️ model.py not found. Please ensure the age-gender model is in the same directory.")
+    predict_age_gender = None
 
 
 # Configuration (hardcoded instead of YAML)
@@ -56,8 +75,6 @@ if not MODEL_PATH.exists():
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)  # Ensure folder exists
     with st.spinner("Downloading ONNX model (~260 MB)..."):
         gdown.download(GDRIVE_URL, str(MODEL_PATH), quiet=False)
-else:
-    st.success(f"ONNX model already exists at {MODEL_PATH}")
 
 
 # Page configuration
@@ -78,40 +95,155 @@ def load_model(model_path):
     return model, device
 
 
-def verify_faces(image_path1, image_path2, model, device, threshold):
+def detect_single_face(image_path):
     """
-    Main verification function
+    Detect exactly one face in the image using MTCNN
     
     Args:
-        image_path1: Path to first image
-        image_path2: Path to second image
-        model: Loaded model
+        image_path: Path to image file
+    
+    Returns:
+        tuple: (success, face_crop, bbox, error_message, original_image)
+            - success: Boolean indicating if exactly one face was found
+            - face_crop: PIL Image of cropped face (or None)
+            - bbox: [x1, y1, x2, y2] coordinates (or None)
+            - error_message: Error description (or None)
+            - original_image: Original PIL Image
+    """
+    # Load image
+    image = Image.open(image_path).convert('RGB')
+    img_array = np.array(image)
+    
+    # Detect faces
+    detections = face_detector.detect_faces(img_array)
+    
+    # Check number of faces
+    if len(detections) == 0:
+        return False, None, None, "❌ No face detected in the image. Please upload an image with a visible face.", image
+    
+    if len(detections) > 1:
+        return False, None, None, f"❌ Multiple faces detected ({len(detections)} faces). Please upload an image with only one face.", image
+    
+    # Exactly one face detected
+    detection = detections[0]
+    box = detection['box']
+    
+    # Extract face region with padding
+    x, y, w, h = box
+    padding = int(0.2 * max(w, h))  # 20% padding
+    x1 = max(0, x - padding)
+    y1 = max(0, y - padding)
+    x2 = min(img_array.shape[1], x + w + padding)
+    y2 = min(img_array.shape[0], y + h + padding)
+    
+    # Crop face
+    face_crop = image.crop((x1, y1, x2, y2))
+    bbox = [x1, y1, x2, y2]
+    
+    return True, face_crop, bbox, None, image
+
+
+def draw_bbox_with_age(image, bbox, age, gender, confidence):
+    """
+    Draw bounding box and age/gender info on image
+    
+    Args:
+        image: PIL Image
+        bbox: [x1, y1, x2, y2]
+        age: Predicted age
+        gender: Predicted gender
+        confidence: Gender confidence
+    
+    Returns:
+        PIL Image with annotations
+    """
+    img_copy = image.copy()
+    draw = ImageDraw.Draw(img_copy)
+    
+    x1, y1, x2, y2 = bbox
+    
+    # Draw bounding box
+    draw.rectangle([x1, y1, x2, y2], outline="lime", width=4)
+    
+    # Try to load font
+    try:
+        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
+    except:
+        try:
+            font_large = ImageFont.truetype("arial.ttf", 24)
+            font_small = ImageFont.truetype("arial.ttf", 18)
+        except:
+            font_large = ImageFont.load_default()
+            font_small = ImageFont.load_default()
+    
+    # Prepare text
+    age_text = f"Age: {age} years"
+    gender_text = f"{gender} ({confidence:.0%})"
+    
+    # Calculate text position (above bbox if possible, below if not enough space)
+    text_y = y1 - 70
+    if text_y < 0:
+        text_y = y2 + 10
+    
+    # Draw text background for better readability
+    text_bbox = draw.textbbox((x1, text_y), age_text, font=font_large)
+    draw.rectangle([(text_bbox[0]-5, text_bbox[1]-5), (text_bbox[2]+5, text_bbox[3]+35)], fill="lime")
+    
+    # Draw text
+    draw.text((x1, text_y), age_text, fill="black", font=font_large)
+    draw.text((x1, text_y + 30), gender_text, fill="black", font=font_small)
+    
+    return img_copy
+
+
+def verify_faces(face_crop1, face_crop2, model, device, threshold):
+    """
+    Main verification function using cropped face images
+    
+    Args:
+        face_crop1: PIL Image of first face
+        face_crop2: PIL Image of second face
+        model: Loaded verification model
         device: Device for inference
         threshold: Decision threshold
     
     Returns:
         result: Dictionary with verification results
-        img1: Original PIL image 1
-        img2: Original PIL image 2
     """
-    # Preprocess images
-    tensor1, img1 = preprocess_image(image_path1)
-    tensor2, img2 = preprocess_image(image_path2)
+    # Save face crops temporarily for preprocessing
+    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp1:
+        face_crop1.save(tmp1.name)
+        tmp_path1 = tmp1.name
     
-    # Extract features
-    features1 = extract_features(model, tensor1, device)
-    features2 = extract_features(model, tensor2, device)
+    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp2:
+        face_crop2.save(tmp2.name)
+        tmp_path2 = tmp2.name
     
-    # Compute similarity
-    similarity = compute_cosine_similarity(features1, features2)
+    try:
+        # Preprocess images
+        tensor1, _ = preprocess_image(tmp_path1)
+        tensor2, _ = preprocess_image(tmp_path2)
+        
+        # Extract features
+        features1 = extract_features(model, tensor1, device)
+        features2 = extract_features(model, tensor2, device)
+        
+        # Compute similarity
+        similarity = compute_cosine_similarity(features1, features2)
+        
+        # Predict
+        is_same, confidence = predict_same_person(similarity, threshold)
+        
+        # Format result
+        result = format_result(similarity, threshold, is_same, confidence)
+        
+        return result
     
-    # Predict
-    is_same, confidence = predict_same_person(similarity, threshold)
-    
-    # Format result
-    result = format_result(similarity, threshold, is_same, confidence)
-    
-    return result, img1, img2
+    finally:
+        # Clean up temp files
+        os.unlink(tmp_path1)
+        os.unlink(tmp_path2)
 
 
 def main():
@@ -167,6 +299,7 @@ def main():
         threshold = CONFIG['inference']['threshold']
         
         st.markdown("---")
+        st.info("📌 **Face Detection Active**\n\nImages must contain exactly one face.")
     
     # Main content - Image upload
     col1, col2 = st.columns(2)
@@ -198,6 +331,11 @@ def main():
             st.error("⚠️ Please upload both images")
             return
         
+        # Check if age model is available
+        if predict_age_gender is None:
+            st.error("⚠️ Age-gender prediction model not found. Please ensure model.py is in the streamlit_app directory.")
+            return
+        
         # Save uploaded files to temporary directory
         with tempfile.TemporaryDirectory() as temp_dir:
             # Save image 1
@@ -210,20 +348,63 @@ def main():
             with open(temp_path2, 'wb') as f:
                 f.write(uploaded_file2.getbuffer())
             
-            # Load model
-            with st.spinner("Loading model..."):
+            # Detect faces in both images
+            with st.spinner("Detecting faces..."):
+                success1, face_crop1, bbox1, error1, original_img1 = detect_single_face(temp_path1)
+                success2, face_crop2, bbox2, error2, original_img2 = detect_single_face(temp_path2)
+            
+            # Check if face detection was successful for both images
+            if not success1:
+                st.error(f"**Image 1:** {error1}")
+                return
+            
+            if not success2:
+                st.error(f"**Image 2:** {error2}")
+                return
+            
+            # Both faces detected successfully
+            st.success("✅ Faces detected successfully in both images!")
+            
+            # Predict age and gender for both faces
+            with st.spinner("Predicting age and gender..."):
+                try:
+                    age_result1 = predict_age_gender(face_crop1)
+                    age_result2 = predict_age_gender(face_crop2)
+                except Exception as e:
+                    st.error(f"❌ Error during age prediction: {str(e)}")
+                    return
+            
+            # Draw bounding boxes with age info
+            annotated_img1 = draw_bbox_with_age(
+                original_img1, 
+                bbox1, 
+                age_result1['age'], 
+                age_result1['gender'],
+                age_result1['gender_confidence']
+            )
+            
+            annotated_img2 = draw_bbox_with_age(
+                original_img2, 
+                bbox2, 
+                age_result2['age'],
+                age_result2['gender'],
+                age_result2['gender_confidence']
+            )
+            
+            # Load verification model
+            with st.spinner("Loading verification model..."):
                 try:
                     model, device = load_model(model_path)
                 except Exception as e:
                     st.error(f"❌ Error loading model: {str(e)}")
                     return
             
-            # Perform verification
-            with st.spinner("Processing images..."):
+            # Perform face verification using cropped faces
+            with st.spinner("Verifying identity..."):
                 try:
-                    result, img1, img2 = verify_faces(
-                        temp_path1,
-                        temp_path2,
+                    result = verify_faces(
+                        face_crop1,
+                        face_crop2,
                         model,
                         device,
                         threshold
@@ -236,22 +417,22 @@ def main():
         st.success("✅ Verification Complete!")
         st.markdown("---")
         
-        # Display images side by side
+        # Display images side by side with bounding boxes
         img_col1, img_col2 = st.columns(2)
         
         with img_col1:
-            st.markdown("<div style='display: flex; justify-content: center;'>", unsafe_allow_html=True)
-            st.image(img1, caption="Image 1", width=400)
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.image(annotated_img1, caption="Image 1", width="stretch")
+            st.markdown(f"<h3 style='text-align: center;'>Age: {age_result1['age']} years</h3>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align: center;'>{age_result1['gender']} ({age_result1['gender_confidence']:.0%} confidence)</p>", unsafe_allow_html=True)
 
         with img_col2:
-            st.markdown("<div style='display: flex; justify-content: center;'>", unsafe_allow_html=True)
-            st.image(img2, caption="Image 2", width=400)
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.image(annotated_img2, caption="Image 2", width="stretch")
+            st.markdown(f"<h3 style='text-align: center;'>Age: {age_result2['age']} years</h3>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align: center;'>{age_result2['gender']} ({age_result2['gender_confidence']:.0%} confidence)</p>", unsafe_allow_html=True)
         
         st.markdown("---")
         
-        # Display results
+        # Display verification results
         st.subheader("📊 Verification Results")
         
         # Result card
@@ -295,6 +476,10 @@ def main():
             - **High**: Score is >0.2 away from threshold
             - **Medium**: Score is 0.1-0.2 away from threshold
             - **Low**: Score is <0.1 away from threshold
+            
+            **Age Prediction:**
+            - Age is predicted for each detected face independently
+            - The age-invariant face verification model compares facial features regardless of age differences
             
             **Note:** The threshold (0.1998) was determined from base model evaluation 
             to achieve optimal accuracy on the FG-NET dataset.

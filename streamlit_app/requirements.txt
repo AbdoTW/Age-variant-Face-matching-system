@@ -16,3 +16,10 @@ onnxruntime==1.23.2
 onnx2pytorch==0.5.3
 
 gdown
+
+# NEW: Face detection with MTCNN
+mtcnn==1.0.0
+tensorflow-cpu==2.20.0
+
+# NEW: Age-Gender prediction model
+transformers==4.44.2
