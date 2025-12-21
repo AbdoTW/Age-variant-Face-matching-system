@@ -32,11 +32,11 @@ except ImportError:
     from mtcnn import MTCNN
     face_detector = MTCNN()
 
-# Import age-gender prediction model
+# Import age prediction model
 try:
     from model import predict_age_gender
 except ImportError:
-    st.error("⚠️ model.py not found. Please ensure the age-gender model is in the same directory.")
+    st.error("⚠️ model.py not found. Please ensure the age prediction model is in the same directory.")
     predict_age_gender = None
 
 
@@ -143,16 +143,14 @@ def detect_single_face(image_path):
     return True, face_crop, bbox, None, image
 
 
-def draw_bbox_with_age(image, bbox, age, gender, confidence):
+def draw_bbox_with_age(image, bbox, age):
     """
-    Draw bounding box and age/gender info on image
+    Draw bounding box and age info on image
     
     Args:
         image: PIL Image
         bbox: [x1, y1, x2, y2]
         age: Predicted age
-        gender: Predicted gender
-        confidence: Gender confidence
     
     Returns:
         PIL Image with annotations
@@ -168,31 +166,26 @@ def draw_bbox_with_age(image, bbox, age, gender, confidence):
     # Try to load font
     try:
         font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
     except:
         try:
             font_large = ImageFont.truetype("arial.ttf", 24)
-            font_small = ImageFont.truetype("arial.ttf", 18)
         except:
             font_large = ImageFont.load_default()
-            font_small = ImageFont.load_default()
     
     # Prepare text
     age_text = f"Age: {age} years"
-    gender_text = f"{gender} ({confidence:.0%})"
     
     # Calculate text position (above bbox if possible, below if not enough space)
-    text_y = y1 - 70
+    text_y = y1 - 40
     if text_y < 0:
         text_y = y2 + 10
     
     # Draw text background for better readability
     text_bbox = draw.textbbox((x1, text_y), age_text, font=font_large)
-    draw.rectangle([(text_bbox[0]-5, text_bbox[1]-5), (text_bbox[2]+5, text_bbox[3]+35)], fill="lime")
+    draw.rectangle([(text_bbox[0]-5, text_bbox[1]-5), (text_bbox[2]+5, text_bbox[3]+5)], fill="lime")
     
     # Draw text
     draw.text((x1, text_y), age_text, fill="black", font=font_large)
-    draw.text((x1, text_y + 30), gender_text, fill="black", font=font_small)
     
     return img_copy
 
@@ -333,7 +326,7 @@ def main():
         
         # Check if age model is available
         if predict_age_gender is None:
-            st.error("⚠️ Age-gender prediction model not found. Please ensure model.py is in the streamlit_app directory.")
+            st.error("⚠️ Age prediction model not found. Please ensure model.py is in the streamlit_app directory.")
             return
         
         # Save uploaded files to temporary directory
@@ -365,8 +358,8 @@ def main():
             # Both faces detected successfully
             st.success("✅ Faces detected successfully in both images!")
             
-            # Predict age and gender for both faces
-            with st.spinner("Predicting age and gender..."):
+            # Predict age for both faces
+            with st.spinner("Predicting age..."):
                 try:
                     age_result1 = predict_age_gender(face_crop1)
                     age_result2 = predict_age_gender(face_crop2)
@@ -374,21 +367,17 @@ def main():
                     st.error(f"❌ Error during age prediction: {str(e)}")
                     return
             
-            # Draw bounding boxes with age info
+            # Draw bounding boxes with age info (without gender)
             annotated_img1 = draw_bbox_with_age(
                 original_img1, 
                 bbox1, 
-                age_result1['age'], 
-                age_result1['gender'],
-                age_result1['gender_confidence']
+                age_result1['age']
             )
             
             annotated_img2 = draw_bbox_with_age(
                 original_img2, 
                 bbox2, 
-                age_result2['age'],
-                age_result2['gender'],
-                age_result2['gender_confidence']
+                age_result2['age']
             )
             
             # Load verification model
@@ -423,12 +412,10 @@ def main():
         with img_col1:
             st.image(annotated_img1, caption="Image 1", width="stretch")
             st.markdown(f"<h3 style='text-align: center;'>Age: {age_result1['age']} years</h3>", unsafe_allow_html=True)
-            st.markdown(f"<p style='text-align: center;'>{age_result1['gender']} ({age_result1['gender_confidence']:.0%} confidence)</p>", unsafe_allow_html=True)
 
         with img_col2:
             st.image(annotated_img2, caption="Image 2", width="stretch")
             st.markdown(f"<h3 style='text-align: center;'>Age: {age_result2['age']} years</h3>", unsafe_allow_html=True)
-            st.markdown(f"<p style='text-align: center;'>{age_result2['gender']} ({age_result2['gender_confidence']:.0%} confidence)</p>", unsafe_allow_html=True)
         
         st.markdown("---")
         
