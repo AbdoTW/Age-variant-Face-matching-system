@@ -11,15 +11,15 @@ scipy==1.15.3
 
 opencv-python-headless==4.12.0.88
 
+# ONNX for R100 model
 onnx==1.20.0
 onnxruntime==1.23.2
 onnx2pytorch==0.5.3
 
 gdown
 
-# NEW: Face detection with MTCNN
-mtcnn==1.0.0
-tensorflow-cpu==2.20.0
+# InsightFace for face detection (CPU only)
+insightface==0.7.3
 
-# NEW: Age-Gender prediction model
+# Age-Gender prediction model
 transformers==4.44.2
