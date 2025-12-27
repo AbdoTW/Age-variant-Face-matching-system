@@ -6,7 +6,7 @@ Usage:
     
 Features:
     - Face detection using InsightFace (buffalo_l model)
-    - Face verification using InsightFace buffalo_l or R100 ONNX
+    - Face verification using InsightFace buffalo_l
     - Age prediction using ViT from model.py
     - Adaptive thresholds based on age gap between faces
 """
@@ -15,16 +15,7 @@ import streamlit as st
 import os
 from pathlib import Path
 import torch
-from utils import (
-    load_onnx_model,
-    preprocess_image,
-    extract_features,
-    compute_cosine_similarity,
-    predict_same_person,
-    format_result
-)
 import tempfile
-import gdown
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import cv2
@@ -53,19 +44,12 @@ except ImportError:
 
 CONFIG = {
     'model': {
-        'onnx_path': '../pretrained_models/R100_Glint360K.onnx',
-        'insightface_default': 'buffalo_l',  # Default model
+        'insightface_model': 'buffalo_l',
         'ctx_id': -1,  # CPU only for Streamlit deployment
-        'det_size': (320, 320)  # Larger detection size for buffalo_l
+        'det_size': (320, 320)
     },
     'inference': {
-        'r100_threshold': 0.1998,  # Fallback threshold for R100 ONNX
-        'insightface_buffalo_l_threshold': 0.1156,  # Fallback threshold for buffalo_l
-        'image_size': [112, 112],
-        'normalization': {
-            'mean': [0.5, 0.5, 0.5],
-            'std': [0.5, 0.5, 0.5]
-        },
+        'insightface_threshold': 0.1156,  # Fallback threshold for buffalo_l
         # Age-adaptive thresholds (EER thresholds per age gap)
         'age_adaptive_thresholds': {
             '0-5': 0.3083,
@@ -80,14 +64,6 @@ CONFIG = {
         'description': 'Compare faces across ages with adaptive thresholds'
     }
 }
-
-# Model paths
-MODEL_PATH = Path(__file__).parent / "../pretrained_models/R100_Glint360K.onnx"
-MODEL_PATH = MODEL_PATH.resolve()
-
-# Google Drive direct download URL for R100 ONNX
-GDRIVE_FILE_ID = "1XboNCeVBU42B-rz3-bqiY7W6jgsfOTzZ"
-GDRIVE_URL = f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}"
 
 
 # ============================================================
@@ -140,11 +116,11 @@ def get_adaptive_threshold(age1, age2):
 # ============================================================
 
 @st.cache_resource
-def load_insightface_model(model_name='buffalo_l'):
+def load_insightface_model():
     """Load InsightFace model for face detection and recognition (cached)"""
     try:
         app = FaceAnalysis(
-            name=model_name,
+            name=CONFIG['model']['insightface_model'],
             allowed_modules=['detection', 'recognition']
         )
         app.prepare(
@@ -155,25 +131,6 @@ def load_insightface_model(model_name='buffalo_l'):
     except Exception as e:
         st.error(f"Error loading InsightFace model: {str(e)}")
         return None
-
-
-@st.cache_resource
-def load_r100_onnx_model(model_path):
-    """Load R100 ONNX model for face verification (cached)"""
-    try:
-        # Download model if it doesn't exist
-        if not Path(model_path).exists():
-            Path(model_path).parent.mkdir(parents=True, exist_ok=True)
-            with st.spinner("Downloading R100 ONNX model (~260 MB)..."):
-                gdown.download(GDRIVE_URL, str(model_path), quiet=False)
-        
-        # Load model
-        device = 'cpu'
-        model, device = load_onnx_model(str(model_path), device)
-        return model, device
-    except Exception as e:
-        st.error(f"Error loading R100 ONNX model: {str(e)}")
-        return None, None
 
 
 # ============================================================
@@ -237,43 +194,6 @@ def detect_single_face_insightface(image_path, app):
 # ============================================================
 # Face Verification Functions
 # ============================================================
-
-def verify_faces_r100_onnx(face_crop1, face_crop2, model, device, threshold):
-    """Verify faces using R100 ONNX model"""
-    # Save face crops temporarily for preprocessing
-    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp1:
-        face_crop1.save(tmp1.name)
-        tmp_path1 = tmp1.name
-    
-    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp2:
-        face_crop2.save(tmp2.name)
-        tmp_path2 = tmp2.name
-    
-    try:
-        # Preprocess images
-        tensor1, _ = preprocess_image(tmp_path1)
-        tensor2, _ = preprocess_image(tmp_path2)
-        
-        # Extract features
-        features1 = extract_features(model, tensor1, device)
-        features2 = extract_features(model, tensor2, device)
-        
-        # Compute similarity
-        similarity = compute_cosine_similarity(features1, features2)
-        
-        # Predict
-        is_same, confidence = predict_same_person(similarity, threshold)
-        
-        # Format result
-        result = format_result(similarity, threshold, is_same, confidence)
-        
-        return result
-    
-    finally:
-        # Clean up temp files
-        os.unlink(tmp_path1)
-        os.unlink(tmp_path2)
-
 
 def verify_faces_insightface(embedding1, embedding2, threshold):
     """Verify faces using InsightFace embeddings"""
@@ -433,40 +353,8 @@ def main():
     with st.sidebar:
         st.header("⚙️ Configuration")
         
-        # Model selection dropdown
-        st.subheader("Recognition Model")
-        recognition_model = st.selectbox(
-            "Choose verification model",
-            options=["InsightFace (buffalo_l)", "R100 ONNX"],
-            index=0,  # Default to buffalo_l
-            help="Select the model for face verification"
-        )
-        
-        # Set model info based on selected model
-        if recognition_model == "InsightFace (buffalo_l)":
-            insightface_model_name = 'buffalo_l'
-            model_info = f"""
-            **Model:** InsightFace (buffalo_l)
-            **Type:** Large & Accurate
-            **Thresholding:** Age-Adaptive
-            **Optimized for:** Age-invariant matching
-            """
-        else:  # R100 ONNX
-            insightface_model_name = 'buffalo_l'  # Still use buffalo_l for detection
-            model_info = f"""
-            **Model:** R100 (ResNet-100)
-            **Dataset:** Glint360K
-            **Thresholding:** Age-Adaptive
-            **Optimized for:** Age-invariant matching
-            """
-        
-        st.markdown(model_info)
-        
-        st.markdown("---")
-        
         st.info(f"""
-        
-        📌 **Recognition:** {recognition_model}
+        📌 **Detection & Recognition:** InsightFace (buffalo_l)
         
         📌 **Age Prediction:** Vision Transformer (ViT)
         
@@ -481,11 +369,11 @@ def main():
         with st.expander("📊 Age-Adaptive Thresholds"):
             st.markdown("""
             **EER Thresholds by Age Gap:**
-            - **0-5 years:** 0.264
-            - **5-10 years:** 0.209
-            - **10-20 years:** 0.161
-            - **20-30 years:** 0.106
-            - **30+ years:** 0.100
+            - **0-5 years:** 0.308
+            - **5-10 years:** 0.257
+            - **10-20 years:** 0.213
+            - **20-30 years:** 0.139
+            - **30+ years:** 0.138
             
             The threshold is automatically selected based on the age difference between the two faces.
             """)
@@ -541,18 +429,11 @@ def main():
             st.error("⚠️ Age prediction model not found. Please ensure model.py is in the streamlit_app directory.")
             return
         
-        # Load InsightFace model (buffalo_l by default)
-        with st.spinner(f"Loading InsightFace (buffalo_l) model..."):
-            insightface_app = load_insightface_model('buffalo_l')
+        # Load InsightFace model
+        with st.spinner("Loading InsightFace model..."):
+            insightface_app = load_insightface_model()
             if insightface_app is None:
                 return
-        
-        # Load recognition model if R100 ONNX is selected
-        if recognition_model == "R100 ONNX":
-            with st.spinner("Loading R100 ONNX model..."):
-                r100_model, device = load_r100_onnx_model(MODEL_PATH)
-                if r100_model is None:
-                    return
         
         # Save uploaded files to temporary directory
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -567,7 +448,7 @@ def main():
                 f.write(uploaded_file2.getbuffer())
             
             # Detect faces using InsightFace
-            with st.spinner("Detecting faces with InsightFace (buffalo_l)..."):
+            with st.spinner("Detecting faces..."):
                 success1, face_crop1, bbox1, embedding1, error1, original_img1 = detect_single_face_insightface(temp_path1, insightface_app)
                 success2, face_crop2, bbox2, embedding2, error2, original_img2 = detect_single_face_insightface(temp_path2, insightface_app)
             
@@ -603,36 +484,14 @@ def main():
             else:
                 threshold, age_gap, age_bin = get_adaptive_threshold(age1, age2)
             
-            # # Display age gap and selected threshold
-            # st.markdown(
-            #     f"""
-            #     <div class="age-gap-info">
-            #         <h3 style="margin: 0; color: #4CAF50;">🎯 Age-Adaptive Threshold Selected</h3>
-            #         <p style="margin: 10px 0 5px 0; font-size: 18px;"><strong>Age Gap:</strong> {age_gap} years</p>
-            #         <p style="margin: 5px 0; font-size: 18px;"><strong>Age Bin:</strong> {age_bin}</p>
-            #         <p style="margin: 5px 0 0 0; font-size: 18px;"><strong>Threshold:</strong> {threshold:.4f}</p>
-            #     </div>
-            #     """,
-            #     unsafe_allow_html=True
-            # )
-            
-            # Perform face verification based on selected model
-            with st.spinner(f"Verifying identity using {recognition_model}..."):
+            # Perform face verification
+            with st.spinner("Verifying identity..."):
                 try:
-                    if recognition_model == "R100 ONNX":
-                        result = verify_faces_r100_onnx(
-                            face_crop1,
-                            face_crop2,
-                            r100_model,
-                            device,
-                            threshold
-                        )
-                    else:  # InsightFace (buffalo_l)
-                        result = verify_faces_insightface(
-                            embedding1,
-                            embedding2,
-                            threshold
-                        )
+                    result = verify_faces_insightface(
+                        embedding1,
+                        embedding2,
+                        threshold
+                    )
                 except Exception as e:
                     st.error(f"❌ Error during verification: {str(e)}")
                     return
@@ -723,26 +582,24 @@ def main():
             - **Low**: Score is <0.1 away from threshold
             
             **Models Used:**
-            - **Face Detection:** InsightFace (buffalo_l)
-            - **Face Verification:** {recognition_model}
+            - **Face Detection & Recognition:** InsightFace (buffalo_l)
             - **Age Prediction:** Vision Transformer (ViT)
             
             **Age-Adaptive Thresholds (EER-optimized):**
-            - **0-5 years:** 0.264
-            - **5-10 years:** 0.209
-            - **10-20 years:** 0.161
-            - **20-30 years:** 0.106
-            - **30+ years:** 0.100
+            - **0-5 years:** 0.308
+            - **5-10 years:** 0.257
+            - **10-20 years:** 0.213
+            - **20-30 years:** 0.139
+            - **30+ years:** 0.138
             
-            All thresholds were optimized on the FG-NET dataset for age-invariant face matching.
+            All thresholds were optimized for age-invariant face matching.
             Larger age gaps require lower thresholds to account for appearance changes over time.
             """)
         
         # Debug info
         with st.expander("🔧 Debug Information"):
             st.json({
-                "Detection Model": "InsightFace (buffalo_l)",
-                "Recognition Model": recognition_model,
+                "Model": "InsightFace (buffalo_l)",
                 "Image 1": {
                     "Age": age_result1['age'],
                     "Gender": age_result1.get('gender', 'N/A'),
