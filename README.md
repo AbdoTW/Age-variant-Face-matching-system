@@ -5,11 +5,14 @@ It uses **ArcFace (R100) deep learning model** trained on Glint360K dataset for 
 
 [![View Live App](https://img.shields.io/badge/View_Live_App-Click_Here-blue?style=for-the-badge&logo=streamlit)](https://age-variant-face-matching-system.streamlit.app/)
 
-![Demo Screenshot](assets/demo2.png)
-![Demo Screenshot](assets/demo1.png)
+<!-- ![Demo Screenshot](assets/demo2.png)
+![Demo Screenshot](assets/demo1.png) -->
 
 
-<img src="assets/demo2.png" alt="Demo Screenshot" width="600"/>
-<img src="assets/demo1.png" alt="Demo Screenshot" width="600"/>
+<div align="center">
+  <img src="assets/demo2.png" alt="Demo Screenshot" width="300"/>
+  <img src="assets/demo1.png" alt="Demo Screenshot" width="300"/>
+</div>
+
 
 ---
