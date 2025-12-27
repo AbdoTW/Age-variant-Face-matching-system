@@ -10,8 +10,8 @@ It uses **ArcFace (R100) deep learning model** trained on Glint360K dataset for 
 
 
 <div align="center">
-  <img src="assets/demo2.png" alt="Demo Screenshot" width="300"/>
-  <img src="assets/demo1.png" alt="Demo Screenshot" width="300"/>
+  <img src="assets/demo2.png" alt="Demo Screenshot" width="400"/>
+  <img src="assets/demo1.png" alt="Demo Screenshot" width="400"/>
 </div>
 
 
